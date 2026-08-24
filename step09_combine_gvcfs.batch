@@ -1,0 +1,72 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s09_combine
+#SBATCH --qos=medium
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=150gb
+#SBATCH --time=3-00:00:00
+#
+# VCexomes step 09 | combine gVCFs per shard
+# Merges the per-sample gVCFs into one cohort gVCF per shard. A shard is
+# either a primary-assembly contig or the literal keyword 'decoy', which
+# groups every decoy contig into a single job.
+# One array task per shard.
+#
+# Only the samples listed in gvcf_fof enter this step (mean coverage above
+# min_mean_coverage), which is where the cohort drops from 2,187 to the
+# samples that reach the joint genotyping stage.
+#
+# Usage: sbatch --array=0-N scripts/step09_combine_gvcfs.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_gatk"
+
+task=$(array_task_id)
+shard=$(fof_line "$shard_list" "$task")
+out_gvcf="${joint_dir}/${cohort_prefix}_${shard}.g.vcf.gz"
+
+step_header "Step 09 | CombineGVCFs | shard ${shard}"
+log_info "gVCF list:   ${gvcf_fof}"
+log_info "Output gVCF: ${out_gvcf}"
+
+if skip_if_done "$out_gvcf" "Combined gVCF already exists for shard ${shard}, skipping."; then
+    exit 0
+fi
+
+require_file "$gvcf_fof"
+require_file "$ref"
+mkdir -p "$joint_dir"
+
+# One --variant argument per sample
+variant_args=()
+while IFS= read -r gvcf; do
+    [[ -n "$gvcf" ]] && variant_args+=(--variant "$gvcf")
+done < "$gvcf_fof"
+log_info "Samples in the cohort: ${#variant_args[@]}"
+
+# Interval arguments: a single contig, or every decoy contig at once
+interval_args=()
+if [[ "$shard" == "decoy" ]]; then
+    require_file "$decoy_contig_list"
+    while IFS= read -r contig; do
+        [[ -n "$contig" ]] && interval_args+=(-L "$contig")
+    done < "$decoy_contig_list"
+    log_info "Decoy shard with ${#interval_args[@]} contigs"
+else
+    interval_args+=(-L "$shard")
+fi
+
+gatk --java-options "-Xmx${java_mem_joint}" CombineGVCFs \
+    -R "$ref" \
+    "${variant_args[@]}" \
+    "${interval_args[@]}" \
+    -O "$out_gvcf"
+
+log_info "DONE step 09 for shard ${shard}"

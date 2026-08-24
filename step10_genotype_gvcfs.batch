@@ -1,0 +1,49 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s10_genotype
+#SBATCH --qos=medium
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=40gb
+#SBATCH --time=3-00:00:00
+#
+# VCexomes step 10 | joint genotyping
+# Genotypes the combined gVCF of each shard. The per-shard VCFs are
+# concatenated at the beginning of step 11.
+# One array task per shard.
+#
+# Usage: sbatch --array=0-N scripts/step10_genotype_gvcfs.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_gatk"
+
+task=$(array_task_id)
+shard=$(fof_line "$shard_list" "$task")
+in_gvcf="${joint_dir}/${cohort_prefix}_${shard}.g.vcf.gz"
+out_vcf="${joint_dir}/${cohort_prefix}_${shard}.vcf.gz"
+
+step_header "Step 10 | GenotypeGVCFs | shard ${shard}"
+log_info "Input gVCF: ${in_gvcf}"
+log_info "Output VCF: ${out_vcf}"
+
+if skip_if_done "$out_vcf" "Genotyped VCF already exists for shard ${shard}, skipping."; then
+    exit 0
+fi
+
+require_file "$in_gvcf"
+require_file "$ref"
+
+gatk --java-options "-Xmx30g" GenotypeGVCFs \
+    -R "$ref" \
+    -V "$in_gvcf" \
+    -O "$out_vcf" \
+    -G StandardAnnotation \
+    -G AS_StandardAnnotation
+
+log_info "DONE step 10 for shard ${shard}"

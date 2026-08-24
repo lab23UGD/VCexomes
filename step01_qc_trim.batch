@@ -1,0 +1,70 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s01_qctrim
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=10gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes step 01 | sequence QC and trimming
+# FastQC on the raw reads, adapter and quality trimming with Trim Galore,
+# FastQC on the trimmed reads. One array task per sequencing run (R1 file).
+#
+# Usage: sbatch --array=0-N scripts/step01_qc_trim.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+task=$(array_task_id)
+fastq_r1=$(fof_line "$raw_fastq_fof" "$task")
+fastq_r2="${fastq_r1/_1.fq.gz/_2.fq.gz}"
+sample=$(sample_id "$fastq_r1")
+run=$(run_id "$fastq_r1")
+
+require_file "$fastq_r1"
+require_file "$fastq_r2"
+require_file "$trim_galore_bin"
+
+sample_dir="${data_dir}/${sample}"
+trim_dir="${sample_dir}/trim_fastq"
+qc_dir="${sample_dir}/QC"
+
+step_header "Step 01 | QC and trimming | sample ${sample} | run ${run}"
+log_info "R1: ${fastq_r1}"
+log_info "R2: ${fastq_r2}"
+log_info "Trimmed reads: ${trim_dir}"
+log_info "QC reports:    ${qc_dir}"
+
+if skip_if_done "${trim_dir}/${run}_1_val_1.fq.gz" "Trimmed reads already exist for ${run}, skipping."; then
+    exit 0
+fi
+
+mkdir -p "$trim_dir" "${qc_dir}/preQC" "${qc_dir}/postQC"
+
+log_info "Running pre-trimming FastQC"
+fastqc --threads "${SLURM_CPUS_PER_TASK}" --outdir "${qc_dir}/preQC" "$fastq_r1" "$fastq_r2"
+
+log_info "Running Trim Galore (quality ${trim_quality}, minimum length ${trim_length})"
+"$trim_galore_bin" \
+    --quality "$trim_quality" \
+    --length "$trim_length" \
+    --gzip \
+    --paired \
+    -o "$trim_dir" \
+    -j "${SLURM_CPUS_PER_TASK}" \
+    "$fastq_r1" "$fastq_r2"
+
+trimmed_r1="${trim_dir}/${run}_1_val_1.fq.gz"
+trimmed_r2="${trim_dir}/${run}_2_val_2.fq.gz"
+require_file "$trimmed_r1"
+require_file "$trimmed_r2"
+
+log_info "Running post-trimming FastQC"
+fastqc --threads "${SLURM_CPUS_PER_TASK}" --outdir "${qc_dir}/postQC" "$trimmed_r1" "$trimmed_r2"
+
+log_info "DONE step 01 for run ${run}"

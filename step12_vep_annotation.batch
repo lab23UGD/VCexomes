@@ -1,0 +1,69 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s12_vep
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=50gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes step 12 | functional annotation
+# Adds the population tags used downstream (MAF, HWE and variant TYPE) with
+# bcftools and annotates the cohort VCF with Ensembl VEP running offline from
+# a Singularity image. Single job, no array.
+#
+# Usage: sbatch scripts/step12_vep_annotation.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_biotools"
+module load "$modules_singularity"
+
+cd "$joint_dir"
+
+input_vcf="${cohort_prefix}_snps_indels.vcf.gz"
+tagged_vcf="${cohort_prefix}_snps_indels_tags_type.vcf.gz"
+annotated_vcf="${cohort_prefix}_snps_indels_tags_type_ann.vcf.gz"
+
+step_header "Step 12 | VEP annotation"
+log_info "Input VCF:     ${joint_dir}/${input_vcf}"
+log_info "Annotated VCF: ${joint_dir}/${annotated_vcf}"
+
+require_file "$input_vcf"
+require_file "$ref"
+require_file "$vep_sif"
+require_dir "$vep_cache"
+
+if [[ -s "$tagged_vcf" ]]; then
+    log_info "1. Tags already added, skipping"
+else
+    log_info "1. Adding MAF, HWE and TYPE tags"
+    bcftools +fill-tags "$input_vcf" -Oz -o "${cohort_prefix}_snps_indels_tags.vcf.gz" -- -t MAF,HWE
+    bcftools +fill-tags "${cohort_prefix}_snps_indels_tags.vcf.gz" -Oz -o "$tagged_vcf" -- -t TYPE
+    bcftools index --tbi "$tagged_vcf"
+fi
+
+log_info "2. Running Ensembl VEP (offline)"
+singularity exec "$vep_sif" vep \
+    --cache --offline \
+    --dir "$vep_cache" \
+    --fasta "$ref" \
+    --assembly GRCh38 \
+    --sift b --polyphen b \
+    --canonical --biotype --tsl --hgvs --pubmed \
+    --af_1kg \
+    --allow_non_variant \
+    --no_stats \
+    --force_overwrite \
+    --format vcf --vcf --compress_output gzip \
+    -i "$tagged_vcf" \
+    -o "$annotated_vcf"
+
+bcftools index --tbi "$annotated_vcf"
+
+log_info "DONE step 12, annotated cohort VCF: ${joint_dir}/${annotated_vcf}"

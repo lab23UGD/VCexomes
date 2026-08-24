@@ -1,0 +1,66 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s05_mergebam
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=10gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes step 05 | merge per-lane BAM files
+# Merges every sequencing run of a sample into a single BAM. Samples
+# sequenced in a single run are copied instead of merged, so that all
+# downstream steps can rely on the same file name.
+# One array task per sample.
+#
+# Usage: sbatch --array=0-N scripts/step05_merge_bam.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+task=$(array_task_id)
+sample=$(fof_line "$samples_fof" "$task")
+bam_dir="${data_dir}/${sample}/raw_bam"
+out_bam="${bam_dir}/${sample}_merged_files.bam"
+
+step_header "Step 05 | Merge BAM files | sample ${sample}"
+log_info "BAM folder: ${bam_dir}"
+log_info "Output BAM: ${out_bam}"
+
+if skip_if_done "$out_bam" "Merged BAM already exists for ${sample}, skipping."; then
+    exit 0
+fi
+
+require_dir "$bam_dir"
+require_file "$picard_jar"
+
+mapfile -t input_bams < <(find "$bam_dir" -maxdepth 1 -name "*.rgmod.bam" | sort)
+log_info "Found ${#input_bams[@]} run-level BAM files"
+
+case ${#input_bams[@]} in
+    0)
+        die "No *.rgmod.bam files found for sample ${sample}"
+        ;;
+    1)
+        log_info "Single run for this sample, copying instead of merging"
+        cp "${input_bams[0]}" "$out_bam"
+        ;;
+    *)
+        log_info "Merging with Picard MergeSamFiles"
+        merge_args=()
+        for bam in "${input_bams[@]}"; do
+            merge_args+=(--INPUT "$bam")
+        done
+        java -jar "$picard_jar" MergeSamFiles \
+            "${merge_args[@]}" \
+            --OUTPUT "$out_bam" \
+            --SORT_ORDER coordinate \
+            --VALIDATION_STRINGENCY SILENT
+        ;;
+esac
+
+log_info "DONE step 05 for sample ${sample}"

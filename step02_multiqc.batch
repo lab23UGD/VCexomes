@@ -1,0 +1,47 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s02_multiqc
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=20gb
+#SBATCH --time=12:00:00
+#
+# VCexomes step 02 | MultiQC aggregation
+# Collects the per-sample FastQC reports produced in step 01 into two cohort
+# level reports (pre- and post-trimming). Single job, no array.
+#
+# NOTE: no script for this step was recovered from the original material.
+# It has been reconstructed from the workflow diagram and from the equivalent
+# step of the VCamplicons pipeline. See docs/CHANGES.md.
+#
+# Usage: sbatch scripts/step02_multiqc.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+require_dir "$data_dir"
+report_dir="${workspace}/multiqc"
+mkdir -p "${report_dir}/preQC" "${report_dir}/postQC"
+
+step_header "Step 02 | MultiQC aggregation"
+log_info "Scanning ${data_dir} for FastQC reports"
+
+find "$data_dir" -type d -name preQC  > "${report_dir}/preQC_dirs.txt"
+find "$data_dir" -type d -name postQC > "${report_dir}/postQC_dirs.txt"
+
+log_info "Aggregating pre-trimming reports"
+multiqc --file-list "${report_dir}/preQC_dirs.txt" \
+    --force --title "${project} pre-trimming" \
+    -o "${report_dir}/preQC"
+
+log_info "Aggregating post-trimming reports"
+multiqc --file-list "${report_dir}/postQC_dirs.txt" \
+    --force --title "${project} post-trimming" \
+    -o "${report_dir}/postQC"
+
+log_info "DONE step 02, reports written to ${report_dir}"

@@ -1,0 +1,82 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s04_readgroups
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=10gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes step 04 | read groups
+# Adds the read group information required by MarkDuplicates and by GATK,
+# taking the metadata (batch, flowcell, lane, project) from the sequencing
+# manifest. One array task per raw BAM file.
+#
+# The manifest is a 20-column TSV with one row per sequencing run. The lookup
+# key is sample_batch_flowcell_lane (columns 1, 4, 5 and 6), which must match
+# the BAM file name produced in step 03.
+#
+# Usage: sbatch --array=0-N scripts/step04_add_readgroups.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+task=$(array_task_id)
+bam_path=$(fof_line "$bam_raw_fof" "$task")
+bam_dir=$(dirname "$bam_path")
+run=$(basename "$bam_path" .bam)
+sample=$(sample_id "$bam_path")
+
+metrics_dir="${bam_dir}/${sample}"
+status_dir="${metrics_dir}/_status"
+out_bam="${bam_dir}/${run}.rgmod.bam"
+
+step_header "Step 04 | Read groups | sample ${sample} | run ${run}"
+log_info "Input BAM:  ${bam_path}"
+log_info "Output BAM: ${out_bam}"
+
+if skip_if_done "$out_bam" "Read groups already added for ${run}, skipping."; then
+    exit 0
+fi
+
+require_file "$bam_path"
+require_file "$manifest_file"
+require_file "$picard_jar"
+make_sample_dirs "$metrics_dir"
+
+# Exact manifest lookup: sample_batch_flowcell_lane
+manifest_row=$(awk -F'\t' -v key="$run" '{ if ($1"_"$4"_"$5"_"$6 == key) { print; exit } }' "$manifest_file")
+[[ -n "$manifest_row" ]] || die "No manifest entry with key ${run} in ${manifest_file}"
+
+IFS=$'\t' read -r rg_sample pool12 pool96 batch flowcell lane _rest <<< "$manifest_row"
+project_name=$(printf '%s' "$manifest_row" | cut -f 10)
+
+log_info "Manifest: sample=${rg_sample} batch=${batch} flowcell=${flowcell} lane=${lane} pool12=${pool12} pool96=${pool96}"
+
+mark_status "$status_dir" START "AddOrReplaceRG_${run}"
+
+if java -jar "$picard_jar" AddOrReplaceReadGroups \
+        --INPUT "$bam_path" \
+        --OUTPUT "$out_bam" \
+        --RGID "${rg_sample}_${batch}_${flowcell}_${lane}" \
+        --RGPL ILLUMINA \
+        --RGLB "$batch" \
+        --RGPU "${flowcell}_${lane}" \
+        --RGSM "$rg_sample" \
+        --RGDS "$ref" \
+        --RGCN "$project_name" \
+        --SORT_ORDER coordinate \
+        --CREATE_INDEX true \
+        --VALIDATION_STRINGENCY SILENT \
+        2> "${metrics_dir}/logs/${run}.addReplaceRG.err" \
+        1> "${metrics_dir}/logs/${run}.addReplaceRG.out"; then
+    mark_status "$status_dir" DONE "AddOrReplaceRG_${run}"
+    log_info "DONE step 04 for run ${run}"
+else
+    mark_status "$status_dir" FAILED "AddOrReplaceRG_${run}"
+    die "AddOrReplaceReadGroups failed for ${run}, see ${metrics_dir}/logs/${run}.addReplaceRG.err"
+fi

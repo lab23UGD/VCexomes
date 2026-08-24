@@ -1,0 +1,53 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_qc_hsmetrics
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes QC | hybrid selection metrics
+# Runs GATK CollectHsMetrics on the recalibrated BAM files to obtain the
+# capture efficiency metrics (on-bait, on-target, fold enrichment, coverage).
+# This is the alignment QC branch of the workflow and is not part of the
+# sequential pipeline. One array task per sample.
+#
+# Usage: sbatch --array=0-N qc/collect_hs_metrics.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_gatk"
+
+task=$(array_task_id)
+bam_path=$(fof_line "$bam_bqsr_fof" "$task")
+sample=$(sample_id "$bam_path")
+out_dir="${workspace}/qc/CollectHsMetrics"
+out_file="${out_dir}/${sample}_hs_metrics.txt"
+
+step_header "QC | CollectHsMetrics | sample ${sample}"
+log_info "Input BAM:  ${bam_path}"
+log_info "Output:     ${out_file}"
+
+if skip_if_done "$out_file" "HS metrics already computed for ${sample}, skipping."; then
+    exit 0
+fi
+
+require_file "$bam_path"
+require_file "$bait_intervals"
+require_file "$target_intervals"
+mkdir -p "$out_dir"
+
+gatk CollectHsMetrics \
+    --INPUT "$bam_path" \
+    --OUTPUT "$out_file" \
+    --REFERENCE_SEQUENCE "$ref" \
+    --BAIT_INTERVALS "$bait_intervals" \
+    --TARGET_INTERVALS "$target_intervals"
+
+log_info "DONE HS metrics for sample ${sample}"

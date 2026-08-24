@@ -1,0 +1,63 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s03_align
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=50gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes step 03 | alignment and on-target coverage
+# Aligns the trimmed reads with bwa-mem2, sorts and indexes the BAM with
+# SAMtools and computes per-base coverage over the capture targets.
+# One array task per sequencing run.
+#
+# Usage: sbatch --array=0-N scripts/step03_alignment.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_biotools"
+
+task=$(array_task_id)
+fastq_r1=$(fof_line "$raw_fastq_fof" "$task")
+sample=$(sample_id "$fastq_r1")
+run=$(run_id "$fastq_r1")
+
+sample_dir="${data_dir}/${sample}"
+trim_dir="${sample_dir}/trim_fastq"
+bam_dir="${sample_dir}/raw_bam"
+cov_dir="${bam_dir}/cov_files"
+
+trimmed_r1="${trim_dir}/${run}_1_val_1.fq.gz"
+trimmed_r2="${trim_dir}/${run}_2_val_2.fq.gz"
+
+step_header "Step 03 | Alignment | sample ${sample} | run ${run}"
+log_info "Reference:  ${ref}"
+log_info "BAM folder: ${bam_dir}"
+log_info "Coverage:   ${cov_dir}"
+
+if skip_if_done "${cov_dir}/${run}_ontarget.cov" "Coverage already computed for ${run}, skipping."; then
+    exit 0
+fi
+
+require_file "$trimmed_r1"
+require_file "$trimmed_r2"
+require_file "$ref"
+require_file "$target_bed"
+mkdir -p "$bam_dir" "$cov_dir"
+
+log_info "Running bwa-mem2 and samtools sort"
+bwa-mem2 mem -t "${SLURM_CPUS_PER_TASK}" "$ref" "$trimmed_r1" "$trimmed_r2" \
+    | samtools sort -@ "${SLURM_CPUS_PER_TASK}" -o "${bam_dir}/${run}.bam"
+
+samtools index "${bam_dir}/${run}.bam"
+
+log_info "Computing on-target coverage with samtools depth"
+samtools depth -a "${bam_dir}/${run}.bam" -b "$target_bed" > "${cov_dir}/${run}_ontarget.cov"
+
+log_info "DONE step 03 for run ${run}"

@@ -1,0 +1,64 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s08_hc
+#SBATCH --qos=medium
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=30gb
+#SBATCH --time=7-00:00:00
+#
+# VCexomes step 08 | per-sample variant calling
+# Calls germline SNPs and INDELs with GATK HaplotypeCaller in gVCF mode,
+# with the standard and allele-specific annotation groups.
+# One array task per sample.
+#
+# Usage: sbatch --array=0-N scripts/step08_haplotypecaller.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_biotools"
+module load "$modules_r"
+module load "$modules_gatk"
+
+task=$(array_task_id)
+bam_path=$(fof_line "$bam_bqsr_fof" "$task")
+bam_dir=$(dirname "$bam_path")
+sample=$(sample_id "$bam_path")
+
+metrics_dir="${bam_dir}/${sample}"
+status_dir="${metrics_dir}/_status"
+vcf_dir="${bam_dir/raw_bam/raw_vcf_snps_indels}"
+out_gvcf="${vcf_dir}/${sample}_raw.snps.indels.g.vcf.gz"
+
+step_header "Step 08 | HaplotypeCaller | sample ${sample}"
+log_info "Input BAM:   ${bam_path}"
+log_info "Output gVCF: ${out_gvcf}"
+
+if skip_if_done "$out_gvcf" "gVCF already exists for ${sample}, skipping."; then
+    exit 0
+fi
+
+require_file "$bam_path"
+require_file "$ref"
+make_sample_dirs "$metrics_dir"
+mkdir -p "$vcf_dir"
+
+mark_status "$status_dir" START "HaplotypeCaller_${sample}"
+
+gatk --java-options "-Xmx${java_mem}" HaplotypeCaller \
+    -R "$ref" \
+    -I "$bam_path" \
+    -O "$out_gvcf" \
+    -ERC GVCF \
+    -G StandardAnnotation \
+    -G AS_StandardAnnotation \
+    2> "${metrics_dir}/logs/${sample}.haplotypeCaller.err" \
+    1> "${metrics_dir}/logs/${sample}.haplotypeCaller.out"
+
+mark_status "$status_dir" DONE "HaplotypeCaller_${sample}"
+log_info "DONE step 08 for sample ${sample}"

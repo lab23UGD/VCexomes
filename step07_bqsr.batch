@@ -1,0 +1,98 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s07_bqsr
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=10gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes step 07 | base quality score recalibration
+# Runs the full BQSR cycle: recalibration table, ApplyBQSR, a second table on
+# the recalibrated BAM and the before/after covariate plots.
+# One array task per sample.
+#
+# Usage: sbatch --array=0-N scripts/step07_bqsr.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_biotools"
+module load "$modules_r"
+module load "$modules_gatk"
+
+task=$(array_task_id)
+bam_path=$(fof_line "$bam_rmdp_fof" "$task")
+bam_dir=$(dirname "$bam_path")
+sample=$(sample_id "$bam_path")
+
+metrics_dir="${bam_dir}/${sample}"
+status_dir="${metrics_dir}/_status"
+table_pre="${metrics_dir}/intermediate/${sample}_recal_data.table"
+table_post="${metrics_dir}/intermediate/${sample}_recal_data_post.table"
+bqsr_bam="${bam_dir}/${sample}_rgmod.merged.sort.rmdp.BQSR.bam"
+
+step_header "Step 07 | BQSR | sample ${sample}"
+log_info "Input BAM:  ${bam_path}"
+log_info "Output BAM: ${bqsr_bam}"
+log_info "Intervals:  ${target_bed_chr}"
+
+if skip_if_done "$bqsr_bam" "Recalibrated BAM already exists for ${sample}, skipping."; then
+    exit 0
+fi
+
+require_file "$bam_path"
+require_file "$ref"
+require_file "$mills"
+require_file "$dbsnp_bqsr"
+require_file "$target_bed_chr"
+make_sample_dirs "$metrics_dir"
+
+mark_status "$status_dir" START "BQSR_${sample}"
+
+log_info "1. BaseRecalibrator (pre-recalibration table)"
+gatk --java-options "-Xmx${java_mem}" BaseRecalibrator \
+    -R "$ref" \
+    -I "$bam_path" \
+    -known-sites "$mills" \
+    -known-sites "$dbsnp_bqsr" \
+    -L "$target_bed_chr" \
+    -O "$table_pre" \
+    2> "${metrics_dir}/logs/${sample}.baseRecal.err" \
+    1> "${metrics_dir}/logs/${sample}.baseRecal.out"
+
+log_info "2. ApplyBQSR"
+gatk --java-options "-Xmx${java_mem}" ApplyBQSR \
+    -R "$ref" \
+    -I "$bam_path" \
+    --bqsr-recal-file "$table_pre" \
+    -L "$target_bed_chr" \
+    -O "$bqsr_bam" \
+    2> "${metrics_dir}/logs/${sample}.applyBaseRecal.err" \
+    1> "${metrics_dir}/logs/${sample}.applyBaseRecal.out"
+
+log_info "3. BaseRecalibrator (post-recalibration table)"
+gatk --java-options "-Xmx${java_mem}" BaseRecalibrator \
+    -R "$ref" \
+    -I "$bqsr_bam" \
+    -known-sites "$mills" \
+    -known-sites "$dbsnp_bqsr" \
+    -L "$target_bed_chr" \
+    -O "$table_post" \
+    2> "${metrics_dir}/logs/${sample}.baseRecalPost.err" \
+    1> "${metrics_dir}/logs/${sample}.baseRecalPost.out"
+
+log_info "4. AnalyzeCovariates (before/after plots)"
+gatk --java-options "-Xmx${java_mem}" AnalyzeCovariates \
+    -before "$table_pre" \
+    -after "$table_post" \
+    -plots "${metrics_dir}/plots/${sample}_recal_plots.pdf" \
+    2> "${metrics_dir}/logs/${sample}.plots.err" \
+    1> "${metrics_dir}/logs/${sample}.plots.out"
+
+mark_status "$status_dir" DONE "BQSR_${sample}"
+log_info "DONE step 07 for sample ${sample}"

@@ -1,0 +1,116 @@
+#!/bin/bash
+#SBATCH --job-name=VCx_s11_vqsr
+#SBATCH --qos=short
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=40gb
+#SBATCH --time=1-00:00:00
+#
+# VCexomes step 11 | variant quality score recalibration
+# Concatenates the per-shard VCFs of step 10 into the cohort VCF and runs the
+# two VQSR passes: SNP model and INDEL model, each followed by ApplyVQSR.
+# Single job, no array.
+#
+# Usage: sbatch scripts/step11_vqsr.batch config/fisdm4.cfg
+# Author: Celeste Moya-Valera (cmoya@incliva.es)
+
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# shellcheck source=../src/common.sh
+source "${repo_dir}/src/common.sh"
+load_config "${1:-}"
+
+module load "$modules_biotools"
+module load "$modules_r"
+module load "$modules_gatk"
+
+cd "$joint_dir"
+
+raw_vcf="${cohort_prefix}.vcf.gz"
+snp_vcf="${cohort_prefix}_snps.vcf.gz"
+final_vcf="${cohort_prefix}_snps_indels.vcf.gz"
+
+step_header "Step 11 | Variant recalibration (VQSR)"
+log_info "Working directory: ${joint_dir}"
+log_info "Final VCF:         ${joint_dir}/${final_vcf}"
+
+# ---------------------------------------------------------------------
+# 0. Gather the per-shard VCFs
+# ---------------------------------------------------------------------
+if [[ -s "$raw_vcf" ]]; then
+    log_info "0. Cohort VCF already gathered, skipping concatenation"
+else
+    log_info "0. Concatenating the per-shard VCFs"
+    shard_vcfs=()
+    while IFS= read -r shard; do
+        [[ -n "$shard" ]] && shard_vcfs+=("${cohort_prefix}_${shard}.vcf.gz")
+    done < "$shard_list"
+    bcftools concat --allow-overlaps --threads "${SLURM_CPUS_PER_TASK}" \
+        "${shard_vcfs[@]}" -Oz -o "$raw_vcf"
+    bcftools index --tbi "$raw_vcf"
+fi
+
+# ---------------------------------------------------------------------
+# 1. SNP model
+# ---------------------------------------------------------------------
+log_info "1. VariantRecalibrator (SNP mode)"
+gatk --java-options "-Xmx30g" VariantRecalibrator \
+    -R "$ref" \
+    -V "$raw_vcf" \
+    --resource:hapmap,known=false,training=true,truth=true,prior=15.0 "$hapmap" \
+    --resource:omni,known=false,training=true,truth=false,prior=12.0 "$omni" \
+    --resource:1000G,known=false,training=true,truth=false,prior=10.0 "$kg_snps" \
+    --resource:dbsnp,known=true,training=false,truth=false,prior=2.0 "$dbsnp_vqsr" \
+    -an QD -an MQ -an MQRankSum -an ReadPosRankSum -an FS -an SOR \
+    -mode SNP \
+    -O "${cohort_prefix}_snps.recal" \
+    --tranches-file "${cohort_prefix}_snps.tranches" \
+    --rscript-file "${cohort_prefix}_snps.plots.R"
+
+# The plotting script emits an rgb colour space that this R build rejects
+sed -i 's/space="rgb"/space="Lab"/g' "${cohort_prefix}_snps.plots.R"
+Rscript "${cohort_prefix}_snps.plots.R"
+
+log_info "2. ApplyVQSR (SNP mode, truth sensitivity ${snp_ts_filter})"
+gatk --java-options "-Xmx30g" ApplyVQSR \
+    -R "$ref" \
+    -V "$raw_vcf" \
+    -O "$snp_vcf" \
+    --truth-sensitivity-filter-level "$snp_ts_filter" \
+    --tranches-file "${cohort_prefix}_snps.tranches" \
+    --recal-file "${cohort_prefix}_snps.recal" \
+    -mode SNP
+
+# ---------------------------------------------------------------------
+# 2. INDEL model
+# ---------------------------------------------------------------------
+log_info "3. VariantRecalibrator (INDEL mode)"
+gatk --java-options "-Xmx30g" VariantRecalibrator \
+    -R "$ref" \
+    -V "$snp_vcf" \
+    --resource:mills,known=false,training=true,truth=true,prior=12.0 "$mills" \
+    --resource:dbsnp,known=true,training=false,truth=false,prior=2.0 "$dbsnp_vqsr" \
+    -an QD -an FS -an SOR -an ReadPosRankSum -an MQRankSum -an InbreedingCoeff \
+    -mode INDEL \
+    --max-gaussians "$indel_max_gaussians" \
+    -O "${cohort_prefix}_indels.recal" \
+    --tranches-file "${cohort_prefix}_indels.tranches" \
+    --rscript-file "${cohort_prefix}_indels.plots.R"
+
+sed -i 's/space="rgb"/space="Lab"/g' "${cohort_prefix}_indels.plots.R"
+Rscript "${cohort_prefix}_indels.plots.R"
+
+log_info "4. ApplyVQSR (INDEL mode, truth sensitivity ${indel_ts_filter})"
+gatk --java-options "-Xmx30g" ApplyVQSR \
+    -R "$ref" \
+    -V "$snp_vcf" \
+    -O "$final_vcf" \
+    --truth-sensitivity-filter-level "$indel_ts_filter" \
+    --tranches-file "${cohort_prefix}_indels.tranches" \
+    --recal-file "${cohort_prefix}_indels.recal" \
+    -mode INDEL
+
+bcftools index --tbi "$final_vcf"
+
+log_info "DONE step 11, recalibrated cohort VCF: ${joint_dir}/${final_vcf}"
