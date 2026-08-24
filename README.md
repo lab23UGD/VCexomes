@@ -1,6 +1,6 @@
 # VCexomes
 
-Germline SNP and INDEL calling pipeline for whole-exome sequencing data,
+Germline SNV calling pipeline for whole-exome sequencing data,
 following the GATK Best Practices on a SLURM cluster.
 
 Developed at the Genomics and Diabetes Unit, INCLIVA Biomedical Research
@@ -9,8 +9,6 @@ Institute (Valencia, Spain).
 This repository has been used for the analysis performed on the Di@bet.es cohort:
 2,198 exomes captured with the IDT xGen Exome Hybridisation Panel v2 and
 aligned to GRCh38 with decoy contigs. 
-
-The configuration file holds the parameters and reference data used for that run, and `docs/VERSIONS.md` the software versions. It documents the analysis as it was carried out rather than providing a turnkey re-run.
 
 ## Pipeline details
 
