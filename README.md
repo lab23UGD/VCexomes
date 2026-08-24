@@ -26,7 +26,8 @@ providing a turnkey re-run, see Scope and limitations.
 
 ## Workflow
 
-<img width="3150" height="2756" alt="bioinformatics_diagram-3-1" src="https://github.com/user-attachments/assets/44bfd095-0d30-4506-b98f-1f6336ba76e9" />
+<img width="916" height="562" alt="vcexomes" src="https://github.com/user-attachments/assets/4ec9d1a3-fa19-409b-90dc-1814ecee4cc0" />
+
 
 
 | Step | Script | Tool | Output |
