@@ -26,7 +26,7 @@ providing a turnkey re-run, see Scope and limitations.
 
 ## Workflow
 
-![VCexomes workflow](docs/workflow.png)
+![VCexomes workflow](<img width="3150" height="2756" alt="bioinformatics_diagram-3-1" src="https://github.com/user-attachments/assets/1cde191d-7653-4bd6-91d0-6d8997e318a0" />)
 
 | Step | Script | Tool | Output |
 |---|---|---|---|
