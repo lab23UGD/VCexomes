@@ -6,10 +6,12 @@ following the GATK Best Practices on a SLURM cluster.
 Developed at the Genomics and Diabetes Unit, INCLIVA Biomedical Research
 Institute (Valencia, Spain).
 
-This repository is a reproducible snapshot of the analysis of the FISDM4
-cohort: 2,198 exomes captured with the IDT xGen Exome Hybridisation Panel v2
-and aligned to GRCh38 with decoy contigs. The configuration file holds the
-exact parameters and reference data used for that run.
+This repository is a record of the analysis performed on the FISDM4 cohort:
+2,198 exomes captured with the IDT xGen Exome Hybridisation Panel v2 and
+aligned to GRCh38 with decoy contigs. The configuration file holds the
+parameters and reference data used for that run, and `docs/VERSIONS.md` the
+software versions. It documents the analysis as it was carried out rather than
+providing a turnkey re-run, see Scope and limitations.
 
 ## Pipeline details
 
@@ -69,12 +71,15 @@ samples enter the joint genotyping.
 ├── deprecated/                 # Original scripts kept for the record
 └── docs/
     ├── workflow.png
+    ├── VERSIONS.md             # Software versions used for the FISDM4 run
     └── CHANGES.md              # Every deviation from the original scripts
 ```
 
 ## Requirements
 
-Available through the cluster modules (`biotools`, `gatk`, `R`, `singularity`):
+Versions used for the FISDM4 run are listed in `docs/VERSIONS.md`. The tools
+are available through the cluster modules (`biotools`, `gatk`, `R`,
+`singularity`):
 
 * FastQC and MultiQC
 * Trim Galore with Cutadapt
@@ -170,7 +175,19 @@ variant QC and the hard filters applied after annotation. The reduction from
 the final filtered set comes from those steps, so this repository reproduces
 the call set up to annotation but not the final cohort.
 
+Two further caveats apply to a re-run from scratch. The tool versions are not
+pinned by the scripts: the `biotools` and `gatk` modules resolve to whatever
+the cluster provides, and the VEP image is tagged `latest`, so
+`docs/VERSIONS.md` is the record of what was actually used. And the coverage
+filter that produces `gvcf_more_20x_cov.fof`, which decides the samples
+entering joint genotyping, was applied by hand rather than scripted.
+
 `docs/CHANGES.md` records the mapping between the original scripts and the ones
 here, the defects that were fixed, the commented-out blocks that were restored,
 and the points that still need confirming against the run log.
 
+## Citation
+
+If you use this pipeline, please cite it as: Moya-Valera C. VCexomes: germline
+variant calling pipeline for whole-exome sequencing. Genomics and Diabetes
+Unit, INCLIVA Biomedical Research Institute, Valencia, Spain.
