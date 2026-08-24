@@ -167,25 +167,6 @@ Per-sample results are written under `data_dir/<sample>/`:
 Cohort-level files are written to `joint_dir`, ending in
 `VCexomes_raw_allSamples_snps_indels_tags_type_ann.vcf.gz`.
 
-## Scope and limitations
-
-The workflow diagram includes three QC branches for which no script was
-recovered: sample identity QC (ancestry, relatedness and sex inference),
-variant QC and the hard filters applied after annotation. The reduction from
-2,198 sequenced samples to the 2,187 that reach recalibration and the 2,092 in
-the final filtered set comes from those steps, so this repository reproduces
-the call set up to annotation but not the final cohort.
-
-Two further caveats apply to a re-run from scratch. The tool versions are not
-pinned by the scripts: the `biotools` and `gatk` modules resolve to whatever
-the cluster provides, and the VEP image is tagged `latest`, so
-`docs/VERSIONS.md` is the record of what was actually used. And the coverage
-filter that produces `gvcf_more_20x_cov.fof`, which decides the samples
-entering joint genotyping, was applied by hand rather than scripted.
-
-`docs/CHANGES.md` records the mapping between the original scripts and the ones
-here, the defects that were fixed, the commented-out blocks that were restored,
-and the points that still need confirming against the run log.
 
 ## Citation
 
