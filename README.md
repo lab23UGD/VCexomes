@@ -166,10 +166,3 @@ Per-sample results are written under `data_dir/<sample>/`:
 
 Cohort-level files are written to `joint_dir`, ending in
 `VCexomes_raw_allSamples_snps_indels_tags_type_ann.vcf.gz`.
-
-
-## Citation
-
-If you use this pipeline, please cite it as: Moya-Valera C. VCexomes: germline
-variant calling pipeline for whole-exome sequencing. Genomics and Diabetes
-Unit, INCLIVA Biomedical Research Institute, Valencia, Spain.
