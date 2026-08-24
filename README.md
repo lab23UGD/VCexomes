@@ -174,8 +174,3 @@ the call set up to annotation but not the final cohort.
 here, the defects that were fixed, the commented-out blocks that were restored,
 and the points that still need confirming against the run log.
 
-## Citation
-
-If you use this pipeline, please cite it as: Moya-Valera C. VCexomes: germline
-variant calling pipeline for whole-exome sequencing. Genomics and Diabetes
-Unit, INCLIVA Biomedical Research Institute, Valencia, Spain.
